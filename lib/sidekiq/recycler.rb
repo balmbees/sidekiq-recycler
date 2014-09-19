@@ -11,13 +11,26 @@ module Sidekiq
     def initialize(opts={})
       @mem_limit      = opts[:mem_limit] || 300_000 # default is 300mb
       @hard_limit_sec = opts[:hard_limit_sec] || 300 # default to 300 sec
+      @check_cycles     = opts[:check_cycles] || {}
     end
 
     def call(worker, job, queue)
+      Sidekiq.logger.debug "Queue: #{queue}"
+
+      if @check_cycles && @check_cycles[queue]
+        Sidekiq.logger.debug "check_cycles[#{queue}]: #{@check_cycles[queue]}"
+      else
+        Sidekiq.logger.debug "check_cycles[#{queue}] is not assigned. check_cycles: #{@check_cycles}"
+      end
+
+      check_cycle = @check_cycles[queue] || 10
+
       begin
         yield
 
       ensure
+        return if Random.rand(check_cycle) > 0
+
         # check mem usage here
         rss = `ps -o rss= -p #{$$}`.to_i
         if rss > @mem_limit then
