@@ -1,4 +1,3 @@
-
 module Sidekiq
   class Recycler
 
@@ -8,28 +7,30 @@ module Sidekiq
     # avoid extra spam after hard limit reached
     @@recycled = false
 
+    @@check_counters = nil
+
     def initialize(opts={})
       @mem_limit      = opts[:mem_limit] || 300_000 # default is 300mb
       @hard_limit_sec = opts[:hard_limit_sec] || 300 # default to 300 sec
-      @check_cycles     = opts[:check_cycles] || {}
+      @check_cycles   = opts[:check_cycles] || {}
+      unless @@check_counters
+        @@check_counters = Hash[@check_cycles.map{|k,v| [k, 0]}]
+      end
     end
 
     def call(worker, job, queue)
-      Sidekiq.logger.debug "Queue: #{queue}"
-
-      if @check_cycles && @check_cycles[queue]
-        Sidekiq.logger.debug "check_cycles[#{queue}]: #{@check_cycles[queue]}"
-      else
-        Sidekiq.logger.debug "check_cycles[#{queue}] is not assigned. check_cycles: #{@check_cycles}"
-      end
-
-      check_cycle = @check_cycles[queue] || 10
-
       begin
         yield
 
       ensure
-        return if Random.rand(check_cycle) > 0
+        check_cycle = @check_cycles[queue] || 1000
+        @@check_counters[queue] ||= 0
+
+        if @@check_counters[queue] < check_cycle
+          @@check_counters[queue] += 1
+          return
+        end
+        @@check_counters[queue] = 0
 
         # check mem usage here
         rss = `ps -o rss= -p #{$$}`.to_i
